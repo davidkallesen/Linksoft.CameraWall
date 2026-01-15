@@ -168,4 +168,29 @@ public class DialogService : IDialogService
 
         return dialog.ShowDialog() == true;
     }
+
+    /// <inheritdoc />
+    public IReadOnlyCollection<CameraConfiguration>? ShowAssignCameraDialog(
+        string layoutName,
+        IReadOnlyCollection<CameraConfiguration> availableCameras,
+        IReadOnlyCollection<CameraConfiguration> assignedCameras)
+    {
+        ArgumentNullException.ThrowIfNull(layoutName);
+        ArgumentNullException.ThrowIfNull(availableCameras);
+        ArgumentNullException.ThrowIfNull(assignedCameras);
+
+        var viewModel = new AssignCameraDialogViewModel(layoutName, availableCameras, assignedCameras);
+        var dialog = new AssignCameraDialog(viewModel)
+        {
+            Owner = Application.Current.MainWindow,
+        };
+
+        // Only return result if dialog was confirmed AND there are actual changes
+        if (dialog.ShowDialog() == true && viewModel.HasActualChanges())
+        {
+            return viewModel.AssignedCameras.ToList();
+        }
+
+        return null;
+    }
 }

@@ -105,6 +105,22 @@ public partial class CameraConfigurationDialogViewModel : ViewModelDialogBase
         }
     }
 
+    public IDictionary<string, string> RtspTransportItems { get; } = new Dictionary<string, string>(StringComparer.Ordinal)
+    {
+        ["tcp"] = "TCP",
+        ["udp"] = "UDP",
+    };
+
+    public string SelectedRtspTransportKey
+    {
+        get => Camera.RtspTransport;
+        set
+        {
+            Camera.RtspTransport = value;
+            RaisePropertyChanged();
+        }
+    }
+
     public NetworkScannerViewModel NetworkScanner { get; } = CreateNetworkScanner();
 
     private static NetworkScannerViewModel CreateNetworkScanner()
@@ -223,39 +239,16 @@ public partial class CameraConfigurationDialogViewModel : ViewModelDialogBase
         return !existingIpAddresses.Contains(Camera.IpAddress, StringComparer.OrdinalIgnoreCase);
     }
 
-    [RelayCommand(CanExecute = nameof(CanTestConnection))]
-    private async Task TestConnection()
+    [RelayCommand("TestConnection", CanExecute = nameof(CanTestConnection))]
+    private async Task TestConnectionAsync()
     {
         IsTesting = true;
         ClearTestResult();
 
         try
         {
-            if (Camera.Protocol == CameraProtocol.Rtsp)
-            {
-                using var tcpClient = new System.Net.Sockets.TcpClient();
-
-                await tcpClient
-                    .ConnectAsync(Camera.IpAddress, Camera.Port)
-                    .ConfigureAwait(false);
-
-                SetTestResult(Translations.ConnectionSuccessful);
-            }
-            else
-            {
-                var uri = Camera.BuildUri();
-
-                using var httpClient = new HttpClient();
-                httpClient.Timeout = TimeSpan.FromSeconds(5);
-
-                var response = await httpClient
-                    .GetAsync(uri)
-                    .ConfigureAwait(false);
-
-                SetTestResult(response.IsSuccessStatusCode
-                    ? Translations.ConnectionSuccessful
-                    : string.Format(CultureInfo.CurrentCulture, Translations.FailedWithStatus1, response.StatusCode));
-            }
+            var uri = Camera.BuildUri();
+            await TestStreamWithPlayerAsync(uri).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -264,6 +257,91 @@ public partial class CameraConfigurationDialogViewModel : ViewModelDialogBase
         finally
         {
             IsTesting = false;
+        }
+    }
+
+    private async Task TestStreamWithPlayerAsync(Uri uri)
+    {
+        using var player = CreateTestPlayer();
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var tcs = new TaskCompletionSource<bool>();
+
+        SubscribeToPlayerStatus(player, tcs);
+
+        try
+        {
+            player.Open(uri.ToString());
+            await WaitForConnectionResultAsync(tcs, cts.Token).ConfigureAwait(false);
+        }
+        finally
+        {
+            player.PropertyChanged -= OnPlayerStatusChanged;
+            player.Stop();
+        }
+
+        void OnPlayerStatusChanged(
+            object? sender,
+            PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName != nameof(Player.Status))
+            {
+                return;
+            }
+
+            switch (player.Status)
+            {
+                case Status.Playing:
+                    tcs.TrySetResult(true);
+                    break;
+                case Status.Failed:
+                    tcs.TrySetResult(false);
+                    break;
+            }
+        }
+
+        void SubscribeToPlayerStatus(
+            Player p,
+            TaskCompletionSource<bool> taskSource)
+        {
+            p.PropertyChanged += OnPlayerStatusChanged;
+        }
+    }
+
+    private static Player CreateTestPlayer()
+    {
+        var config = new Config
+        {
+            Player =
+            {
+                AutoPlay = true,
+            },
+            Video =
+            {
+                BackColor = Colors.Black,
+            },
+            Audio =
+            {
+                Enabled = false,
+            },
+        };
+
+        return new Player(config);
+    }
+
+    private async Task WaitForConnectionResultAsync(
+        TaskCompletionSource<bool> tcs,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var success = await tcs.Task
+                .WaitAsync(cancellationToken)
+                .ConfigureAwait(false);
+            SetTestResult(success ? Translations.ConnectionSuccessful : Translations.StreamOpenFailed);
+        }
+        catch (OperationCanceledException)
+        {
+            SetTestResult(Translations.ConnectionTimedOut);
         }
     }
 

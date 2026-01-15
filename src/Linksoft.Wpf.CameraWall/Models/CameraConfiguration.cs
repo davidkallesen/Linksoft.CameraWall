@@ -41,11 +41,25 @@ public partial class CameraConfiguration : ObservableObject
     [ObservableProperty]
     private OverlayPosition overlayPosition = OverlayPosition.TopLeft;
 
+    [JsonIgnore]
     [ObservableProperty]
     private bool canSwapLeft;
 
+    [JsonIgnore]
     [ObservableProperty]
     private bool canSwapRight;
+
+    [ObservableProperty]
+    private bool useLowLatencyMode = true;
+
+    [ObservableProperty]
+    private int maxLatencyMs = 500;
+
+    [ObservableProperty]
+    private string rtspTransport = "tcp";
+
+    [ObservableProperty]
+    private int bufferDurationMs;
 
     /// <summary>
     /// Builds the camera stream URI based on the configuration.

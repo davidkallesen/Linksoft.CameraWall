@@ -412,12 +412,23 @@ public partial class CameraTile : IDisposable
         CameraName = cameraConfig.DisplayName;
         CameraDescription = cameraConfig.Description ?? string.Empty;
 
-        // Create new player
+        Player = CreatePlayer(cameraConfig);
+        Player.PropertyChanged += OnPlayerPropertyChanged;
+
+        UpdateOverlayPosition(cameraConfig.OverlayPosition);
+
+        // Start streaming
+        Play();
+    }
+
+    private static Player CreatePlayer(CameraConfiguration camera)
+    {
         var config = new Config
         {
             Player =
             {
                 AutoPlay = true,
+                MaxLatency = camera.MaxLatencyMs * 10000L,
             },
             Video =
             {
@@ -429,13 +440,14 @@ public partial class CameraTile : IDisposable
             },
         };
 
-        Player = new Player(config);
-        Player.PropertyChanged += OnPlayerPropertyChanged;
+        if (camera.UseLowLatencyMode)
+        {
+            config.Demuxer.BufferDuration = camera.BufferDurationMs * 10000L;
+            config.Demuxer.FormatOpt["rtsp_transport"] = camera.RtspTransport;
+            config.Demuxer.FormatOpt["fflags"] = "nobuffer";
+        }
 
-        UpdateOverlayPosition(cameraConfig.OverlayPosition);
-
-        // Start streaming
-        Play();
+        return new Player(config);
     }
 
     private void OnPlayerPropertyChanged(
